@@ -20,15 +20,6 @@ _DEFAULT_SHARED_PROJECTS_ROOT = (
 )
 
 
-def _first_existing(*paths: str) -> str:
-    """Return the first path that exists, else the first candidate (so the
-    default is informative even on a fresh box)."""
-    for p in paths:
-        if p and Path(p).exists():
-            return p
-    return paths[0] if paths else ""
-
-
 # GenoFLU reference database directory — the `dependencies/` dir that ships in
 # the conda package, holding `fastas/` (the BLAST reference segments) and
 # `genotype_key.xlsx` (the per-segment lineage -> genotype key). Empty by
@@ -36,10 +27,10 @@ def _first_existing(*paths: str) -> str:
 # the reproducible, version-pinned location whose version is recorded in each
 # run's provenance. Set this only to point GenoFLU at an out-of-tree reference
 # set (e.g. a GitHub checkout for pre-release genotypes).
-_GENOFLU_DB_DEFAULT = _first_existing(
-    "/srv/kapurlab/databases/genoflu/dependencies",
-    "",
-)
+# Blank unless a shared override dir actually exists, so the runner resolves the
+# pinned package DB silently (no spurious warning per run).
+_GENOFLU_DB_SHARED = "/srv/kapurlab/databases/genoflu/dependencies"
+_GENOFLU_DB_DEFAULT = _GENOFLU_DB_SHARED if Path(_GENOFLU_DB_SHARED).is_dir() else ""
 
 DEFAULTS: Dict[str, Any] = {
     "projects_root": str(Path.home() / "projects"),
