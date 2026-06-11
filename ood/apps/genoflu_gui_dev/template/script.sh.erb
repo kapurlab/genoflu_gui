@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# GenoFLU GUI (dev) OOD batch_connect script.
+# $port (uvicorn) and $worktree_dir are exported by before.sh.erb.
+
+echo "=== GenoFLU GUI (dev) Session Starting ==="
+echo "uvicorn:${port}"
+echo "worktree:${worktree_dir}"
+
+SHARED_ENV=/srv/kapurlab/tools/genoflu_gui/env
+PERSONAL_ENV=/home/${USER}/miniforge3/envs/genoflu_gui
+PERSONAL_BASE_PYTHON=/home/${USER}/miniforge3/bin/python
+
+if [ -d "${SHARED_ENV}" ] && [ -x "${SHARED_ENV}/bin/python" ]; then
+  GENO_ENV="${SHARED_ENV}"
+  PYTHON="${SHARED_ENV}/bin/python"
+elif [ -d "${PERSONAL_ENV}" ]; then
+  GENO_ENV="${PERSONAL_ENV}"
+  PYTHON="${PERSONAL_ENV}/bin/python"
+else
+  GENO_ENV=""
+  PYTHON="${PERSONAL_BASE_PYTHON}"
+fi
+
+# Dev override: prefer the per-session worktree if before.sh.erb set one.
+SHARED_GENO_GUI=/srv/kapurlab/tools/genoflu_gui
+if [ -n "${worktree_dir}" ] && [ -d "${worktree_dir}/backend" ]; then
+  GENO_DIR="${worktree_dir}"
+else
+  GENO_DIR="${SHARED_GENO_GUI}"
+fi
+
+export PATH="${GENO_ENV}/bin:${PATH}"
+export PYTHONPATH="${GENO_DIR}/bin:${PYTHONPATH}"
+
+# Dev: build the frontend from the selected branch's source so UI changes are
+# served. Only runs in the per-session worktree (never the shared install).
+if [ -n "${worktree_dir}" ] && [ "${GENO_DIR}" = "${worktree_dir}" ] && [ -d "${GENO_DIR}/frontend" ]; then
+  if [ ! -e "${GENO_DIR}/frontend/node_modules" ] && [ -d "${SHARED_GENO_GUI}/frontend/node_modules" ]; then
+    ln -s "${SHARED_GENO_GUI}/frontend/node_modules" "${GENO_DIR}/frontend/node_modules"
+  fi
+  echo "Building frontend (vite) from worktree source…"
+  ( cd "${GENO_DIR}/frontend" && npm run build ) \
+    || echo "WARN: frontend build failed; serving existing dist/ if present."
+fi
+
+cd "${GENO_DIR}/backend"
+echo "Starting uvicorn on port ${port}"
+echo "  conda env:   ${GENO_ENV}"
+echo "  genoflu_gui: ${GENO_DIR}"
+exec $PYTHON -m uvicorn app.main:app \
+    --host 0.0.0.0 \
+    --port "${port}" \
+    --log-level info \
+    --reload \
+    --reload-dir app

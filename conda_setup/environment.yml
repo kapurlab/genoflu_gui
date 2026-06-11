@@ -1,0 +1,57 @@
+# Environment for the GenoFLU GUI.
+#
+# Install (shared) with:
+#   mamba env create -p /srv/kapurlab/tools/genoflu_gui/env -f conda_setup/environment.yml
+# or (personal) with:
+#   mamba env create -f conda_setup/environment.yml      # -> env name genoflu_gui
+#
+# After the env exists, run deploy/install.sh to verify the GenoFLU reference
+# database (segment FASTAs + genotype_key.xlsx, shipped inside the conda
+# package) and build the React frontend.
+#
+# GenoFLU classifies North-American H5N1 2.3.4.4b influenza A viruses by
+# BLASTing each of the 8 gene segments against a curated reference set and
+# matching the per-segment lineage pattern to a genotype key. The reference DB
+# is bundled with the conda package and is updated by bumping the package
+# (see deploy/update_genoflu.sh) — keep `genoflu` pinned so the DB version used
+# is reproducible and recorded in each run's provenance manifest.
+name: genoflu_gui
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+
+dependencies:
+  # Core Python
+  - python=3.10
+  - pip
+  - numpy
+  - pandas
+  - openpyxl            # read GenoFLU's xlsx + write the single-column stats workbook
+  - biopython
+  - matplotlib-base     # report figures
+  - reportlab           # PDF report (pure-Python; no headless browser)
+  - pillow              # image sizing in the PDF
+
+  # GenoFLU genotyping toolchain
+  - genoflu>=1.07       # USDA-VS GenoFLU (pin so the bundled DB version is reproducible)
+  - blast               # BLASTN — GenoFLU's alignment engine
+  - seqkit              # input FASTA QC stats (segments, lengths, GC, N50)
+
+  # Web backend (FastAPI serves the GUI under OOD)
+  - fastapi>=0.115.0
+  - uvicorn-standard
+  - aiofiles
+  - jinja2
+  - pyyaml
+
+  # pydantic v2 via pip to pin the major version
+  - pip:
+      - pydantic>=2.0.0
+
+# Notes:
+#  - GenoFLU's reference DB lives inside the package at
+#    <genoflu_install>/dependencies/{fastas,genotype_key.xlsx}; deploy/install.sh
+#    locates and verifies it, and the runner records its version in provenance.
+#  - To update genotypes as USDA-VS releases them: deploy/update_genoflu.sh
+#    (bumps the pinned `genoflu` conda package and re-verifies the DB).

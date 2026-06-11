@@ -1,0 +1,7 @@
+---
+name: GenoFLU (dev)
+description: "Dev: branch-picker test environment. Not for production data."
+icon: fa://flask
+category: Bioinformatics
+subcategory: Influenza Genotyping (dev)
+role: batch_connect
