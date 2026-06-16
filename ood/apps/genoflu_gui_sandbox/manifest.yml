@@ -1,0 +1,7 @@
+---
+name: GenoFLU (sandbox)
+description: "Influenza A (H5N1 2.3.4.4b) whole-genome genotyping by per-segment BLAST (USDA-VS GenoFLU)"
+icon: fa://virus
+category: Bioinformatics
+subcategory: Influenza Genotyping
+role: batch_connect
