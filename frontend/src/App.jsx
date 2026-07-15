@@ -40,7 +40,8 @@ export default function App() {
   const [creatingProject, setCreatingProject] = useState(false);
   const [activeProject, setActiveProject] = useState("");
   const [addPath, setAddPath] = useState({});
-  const [sraText, setSraText] = useState({});
+  const [sraText, setSraText] = useState({});   // accession / BioSample text for FASTA download
+  const [fastaRename, setFastaRename] = useState(true);
   const [addStatus, setAddStatus] = useState({});
   const [inputsByProj, setInputsByProj] = useState({});
   const uploadProjRef = useRef("");
@@ -250,26 +251,26 @@ export default function App() {
     return (text || "").split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
   }
 
-  async function sraDownload(name) {
+  async function fastaDownload(name) {
     const accessions = parseAccessions(sraText[name]);
     if (!accessions.length) return;
-    setStat(name, `Resolving ${accessions.length} accession${accessions.length === 1 ? "" : "s"}…`);
+    setStat(name, `Fetching ${accessions.length} genome${accessions.length === 1 ? "" : "s"}…`);
     setShowLogs(true);
     try {
-      const res = await fetch(`./api/projects/${encodeURIComponent(name)}/sra/download`, {
+      const res = await fetch(`./api/projects/${encodeURIComponent(name)}/fasta/download`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ accessions }),
+        body: JSON.stringify({ accessions, rename: fastaRename }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) { setStat(name, `Download failed: ${data.detail || res.status}`); return; }
-      setStat(name, "Downloading… progress shows in the Pipeline Log below.");
+      setStat(name, "Downloading genomes… progress shows in the Pipeline Log below.");
       setSraText((m) => ({ ...m, [name]: "" }));
       setJobId(data.job_id);
       setJobStatus("running");
       setLogLines([]);
       streamLogUntilDone(data.job_id, null, () => {
-        setStat(name, "Download finished — see files below.");
+        setStat(name, "Genome download finished — see FASTA below.");
         refreshAfterLoad(name);
       });
     } catch (e) {
@@ -859,22 +860,26 @@ export default function App() {
                     </div>
 
                     <div className="input-column">
-                      <h3>SRA Download</h3>
+                      <h3>Download genome FASTA by accession</h3>
                       <textarea
                         rows={6}
-                        placeholder={"SRR/ERR/DRR accessions (one per line)"}
+                        placeholder={"BioSample (e.g. SAMN60641678), sample name,\nGenBank/RefSeq accessions (NC_/CP_/CY…),\nor assembly (GCA_/GCF_) — one per line"}
                         value={sraText[activeProject] || ""}
                         onChange={(e) => setSraText((m) => ({ ...m, [activeProject]: e.target.value }))}
                         style={{ resize: "vertical", fontFamily: "inherit" }}
                       />
+                      <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, margin: "4px 0" }}>
+                        <input type="checkbox" checked={fastaRename} onChange={(e) => setFastaRename(e.target.checked)} />
+                        Name files by organism / strain metadata (recommended)
+                      </label>
                       <button
                         style={{ width: "100%" }}
-                        onClick={() => sraDownload(activeProject)}
+                        onClick={() => fastaDownload(activeProject)}
                         disabled={!parseAccessions(sraText[activeProject]).length || running}
                       >
-                        Download{parseAccessions(sraText[activeProject]).length ? ` (${parseAccessions(sraText[activeProject]).length})` : ""}
+                        Fetch FASTA{parseAccessions(sraText[activeProject]).length ? ` (${parseAccessions(sraText[activeProject]).length})` : ""}
                       </button>
-                      <div className="form-hint">Downloads reads into download/ (shared with the sibling tools). GenoFLU itself needs an assembled FASTA — assemble reads upstream first.</div>
+                      <div className="form-hint">Fetches assembled genomes into download/. A <strong>BioSample</strong> or sample name pulls all linked nucleotide records (the 8 influenza segments) into one multi-FASTA that GenoFLU can genotype directly. Genomes assembled by IRMA in this same project also appear as samples automatically.</div>
                     </div>
                   </div>
                 )}

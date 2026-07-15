@@ -35,12 +35,8 @@ from pydantic import BaseModel
 
 from .config import load_config, save_config
 from .jobs import JobManager
-from .sra import (
-    SRAExpansionError,
-    build_download_script,
-    expand_accessions_with_mapping,
-    write_crosswalk_tsv,
-)
+# NOTE: SRA read download was replaced by FASTA-by-accession/BioSample download
+# (backend/app/sra.py is retained for reference but no longer wired into a route).
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -97,13 +93,11 @@ def _is_fasta(name: str) -> bool:
     return name.lower().endswith(_FASTA_EXTS)
 
 
-def _count_project_fastas(download_dir: Path) -> int:
-    """Count assembled-FASTA inputs in <project>/download/."""
-    if not download_dir.is_dir():
-        return 0
+def _count_project_fastas(project_dir: Path) -> int:
+    """Count assembled-FASTA inputs available to GenoFLU in a project
+    (download/ files plus sibling IRMA assemblies under irma/)."""
     try:
-        return sum(1 for f in download_dir.iterdir()
-                   if f.is_file() and _is_fasta(f.name) and not f.name.startswith("."))
+        return len(_list_fasta_samples(project_dir))
     except PermissionError:
         return -1
 
@@ -123,7 +117,7 @@ def _list_projects_from_root(root: Path, scope: str) -> List[Dict]:
         except PermissionError:
             continue
         try:
-            fasta_count = _count_project_fastas(p / "download")
+            fasta_count = _count_project_fastas(p)
         except PermissionError:
             fasta_count = -1
         geno_runs = []
@@ -226,27 +220,69 @@ def _create_project(name: str, scope: str) -> Path:
     return project_dir
 
 
-def _list_fasta_samples(download_dir: Path) -> List[Dict]:
-    """Each assembled FASTA in download/ is one GenoFLU sample."""
-    try:
-        files = sorted(download_dir.iterdir())
-    except PermissionError:
-        return []
-    samples = []
-    for f in files:
-        if not f.is_file() or f.name.startswith(".") or not _is_fasta(f.name):
-            continue
-        sample = re.sub(r"\.(fasta|fa|fna|fas)$", "", f.name, flags=re.IGNORECASE)
+def _fasta_stem(name: str) -> str:
+    return re.sub(r"\.(fasta|fa|fna|fas)$", "", name, flags=re.IGNORECASE)
+
+
+def _list_fasta_samples(project_dir: Path) -> List[Dict]:
+    """Every assembled FASTA available to GenoFLU in a project:
+
+      * flat files in download/  (uploaded, FASTA-downloaded, or linked), and
+      * per-sample IRMA assemblies under irma/<sample>/  — the submission FASTA
+        (8 re-headed segments) if present, else assembly.fasta.
+
+    Listing the sibling IRMA outputs means a genome assembled by the IRMA tool
+    in the *same* project is directly runnable here, without copying files."""
+    samples: List[Dict] = []
+    seen_paths = set()
+
+    def _add(path: Path, source: str) -> None:
+        rp = str(path)
+        if rp in seen_paths:
+            return
+        seen_paths.add(rp)
         try:
-            size = f.stat().st_size
+            size = path.stat().st_size
         except OSError:
             size = 0
         samples.append({
-            "sample": sample,
-            "fasta": str(f),
-            "fasta_name": f.name,
+            "sample": _fasta_stem(path.name),
+            "fasta": rp,
+            "fasta_name": path.name,
             "fasta_size": size,
+            "source": source,
         })
+
+    # download/ — flat FASTA files
+    download_dir = project_dir / "download"
+    if download_dir.is_dir():
+        try:
+            for f in sorted(download_dir.iterdir()):
+                if f.is_file() and not f.name.startswith(".") and _is_fasta(f.name):
+                    _add(f, "download")
+        except PermissionError:
+            pass
+
+    # irma/<sample>/ — sibling IRMA assemblies (prefer the submission FASTA)
+    irma_dir = project_dir / "irma"
+    if irma_dir.is_dir():
+        try:
+            for run in sorted(irma_dir.iterdir()):
+                if not run.is_dir() or run.name.startswith("."):
+                    continue
+                sub = run / f"{run.name}-submission.fasta"
+                asm = run / "assembly.fasta"
+                if sub.is_file():
+                    _add(sub, "irma")
+                elif asm.is_file():
+                    _add(asm, "irma")
+                else:
+                    subs = sorted(run.glob("*-submission.fasta")) or sorted(run.glob("*.fasta"))
+                    if subs:
+                        _add(subs[0], "irma")
+        except PermissionError:
+            pass
+
     return samples
 
 
@@ -380,45 +416,42 @@ def api_project_link_local(name: str, payload: LinkLocalRequest):
     return JSONResponse({"linked": count})
 
 
-class SraRequest(BaseModel):
+class FastaDownloadRequest(BaseModel):
     accessions: List[str]
-    folder: Optional[str] = None
+    rename: bool = True      # save metadata-derived names (organism/strain) vs bare accession
 
 
-@app.post("/api/projects/{name}/sra/download")
-def api_project_sra_download(name: str, payload: SraRequest):
-    """Resolve SRA accessions and download into download/ (shared with sibling
-    tools). GenoFLU itself needs assembled FASTA — use this to seed a project
-    for an upstream assembly step."""
+@app.post("/api/projects/{name}/fasta/download")
+def api_project_fasta_download(name: str, payload: FastaDownloadRequest):
+    """Download genome FASTAs by accession / BioSample into download/ as a
+    background job. GenoFLU genotypes an assembled influenza genome, so this
+    (not SRA reads) is the primary input path.
+
+    GCA/GCF assemblies go through the NCBI `datasets` CLI; nucleotide accessions
+    through eutils efetch; a BioSample (SAMN…) or sample name is resolved to its
+    linked nucleotide records and concatenated into one multi-FASTA (the 8 flu
+    segments as a single genome)."""
     project_dir = _writable_project_dir(name)
-    try:
-        expanded, mapping = expand_accessions_with_mapping(payload.accessions, strict=True)
-    except SRAExpansionError as e:
-        raise HTTPException(
-            502,
-            f"Could not resolve SRA accessions via NCBI eutils: {e}. "
-            "This is usually NCBI rate-limiting; wait ~30 s and retry.",
-        )
-    download_root = project_dir / "download"
-    if payload.folder:
-        download_root = download_root / Path(payload.folder).name
-    download_root.mkdir(parents=True, exist_ok=True)
-    try:
-        write_crosswalk_tsv(download_root, mapping)
-    except OSError as e:
-        logger.warning("Failed to write sra_crosswalk.tsv: %s", e)
-    script = build_download_script(download_root, expanded, allow_insecure_https=False)
-    script_path = download_root / "download_sra.sh"
-    script_path.write_text(script, encoding="utf-8")
-    script_path.chmod(0o755)
-    env = {"PATH": os.environ.get("PATH", "")}
+    accs = [a.strip() for a in (payload.accessions or []) if a.strip()]
+    if not accs:
+        raise HTTPException(400, "No accessions provided.")
+    download_dir = project_dir / "download"
+    download_dir.mkdir(parents=True, exist_ok=True)
+    script = _BIN_DIR / "download_fasta.py"
+    command = [sys.executable, "-u", str(script), "--outdir", str(download_dir)]
+    if not payload.rename:
+        command.append("--no-rename")
+    command += ["--accessions", *accs]
+    env = {
+        "PYTHONPATH": str(_BIN_DIR),
+        "PATH": os.environ.get("PATH", ""),
+        "PYTHONUNBUFFERED": "1",
+    }
     job_id = job_manager.start_job(
-        name=f"sra_download — {name}",
-        command=["bash", str(script_path)],
-        cwd=download_root,
-        env=env,
+        name=f"fasta_download — {name} ({len(accs)})",
+        command=command, cwd=download_dir, env=env,
     )
-    return JSONResponse({"job_id": job_id})
+    return JSONResponse({"job_id": job_id, "count": len(accs)})
 
 
 @app.get("/api/projects/{name}/samples")
@@ -426,10 +459,7 @@ def api_project_samples(name: str):
     project_dir = _get_project_dir(name)
     if project_dir is None:
         raise HTTPException(404, f"Project not found: {name}")
-    download_dir = project_dir / "download"
-    if not download_dir.is_dir():
-        return JSONResponse([])
-    return JSONResponse(_list_fasta_samples(download_dir))
+    return JSONResponse(_list_fasta_samples(project_dir))
 
 
 # ---------------------------------------------------------------------------
