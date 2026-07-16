@@ -553,6 +553,33 @@ def api_sample_geno_table(name: str, sample: str):
     })
 
 
+@app.get("/api/projects/{name}/runs")
+def api_project_runs(name: str):
+    """Summary of every GenoFLU run in a project — one row per sample that has a
+    run dir. Powers the 'Ran samples' pane (searchable, date-filterable) so
+    clicking any sample there drives the Results pane below."""
+    project_dir = _get_project_dir(name)
+    if project_dir is None:
+        raise HTTPException(404, f"Project not found: {name}")
+    runs_root = project_dir / _TOOL_SUBDIR
+    rows: List[Dict[str, Any]] = []
+    if runs_root.is_dir():
+        for run_dir in sorted(runs_root.iterdir(), key=_safe_mtime, reverse=True):
+            if not run_dir.is_dir():
+                continue
+            result = _load_json_file(run_dir / "genoflu_result.json")
+            rows.append({
+                "sample": run_dir.name,
+                "status": _sample_run_status(run_dir),
+                "mtime": _safe_mtime(run_dir),
+                "genotype": result.get("genotype") or "",
+                "segments_matched": result.get("segments_matched") or 0,
+                "complete": bool(result.get("complete")),
+                "has_report": (run_dir / "report.pdf").is_file(),
+            })
+    return JSONResponse({"project": name, "runs": rows})
+
+
 def _load_json_file(path: Path) -> Dict[str, Any]:
     if not path.is_file():
         return {}

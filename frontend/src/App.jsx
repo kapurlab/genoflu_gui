@@ -75,6 +75,11 @@ export default function App() {
 
   const [selectedResultKey, setSelectedResultKey] = useState(null);
 
+  const [projectRuns, setProjectRuns] = useState({});   // project -> [run summaries]
+  const [runFilter, setRunFilter] = useState("");
+  const [runDateStart, setRunDateStart] = useState("");
+  const [runDateEnd, setRunDateEnd] = useState("");
+
   const logRef = useRef(null);
   const eventSourceRef = useRef(null);
 
@@ -107,6 +112,11 @@ export default function App() {
       })
       .catch(() => {});
   }, []);
+
+  // Refresh the "Ran samples" list whenever the active project changes.
+  useEffect(() => {
+    if (activeProject) loadProjectRuns(activeProject);
+  }, [activeProject]);
 
   function loadProjects() {
     setProjectsLoading(true);
@@ -332,6 +342,39 @@ export default function App() {
     }
   }
 
+  // Switch the bottom Results pane to a given sample (unconditionally), loading
+  // its data if we don't have it yet. Used by the "Ran samples" list so clicking
+  // any sample there — even one already shown — drives the Results pane.
+  function showSampleResults(project, s) {
+    const key = sampleKey(project, s);
+    setSelectedResultKey(key);
+    setShowResults(true);
+    if (!sampleResults[key]) loadSampleResults(project, s);
+    if (!genoTables[key]) loadGenoTable(project, s);
+  }
+
+  function loadProjectRuns(project) {
+    if (!project) return;
+    fetch(`./api/projects/${encodeURIComponent(project)}/runs`)
+      .then((r) => r.json())
+      .then((data) => setProjectRuns((m) => ({ ...m, [project]: data.runs || [] })))
+      .catch(() => setProjectRuns((m) => ({ ...m, [project]: [] })));
+  }
+
+  // Apply the search box + date range to a project's run list.
+  function visibleRuns(project) {
+    const rows = projectRuns[project] || [];
+    const q = runFilter.trim().toLowerCase();
+    const start = runDateStart ? new Date(runDateStart + "T00:00:00").getTime() / 1000 : null;
+    const end = runDateEnd ? new Date(runDateEnd + "T23:59:59").getTime() / 1000 : null;
+    return rows.filter((r) => {
+      if (q && !r.sample.toLowerCase().includes(q)) return false;
+      if (start != null && (r.mtime || 0) < start) return false;
+      if (end != null && (r.mtime || 0) > end) return false;
+      return true;
+    });
+  }
+
   async function runSamples(list) {
     if (running || !list.length) return;
     setShowLogs(true);
@@ -341,6 +384,7 @@ export default function App() {
       setQueueInfo({ total: list.length, done: i + 1 });
     }
     setActiveRun(null);
+    loadProjectRuns(activeProject);
   }
 
   function runSelected() {
@@ -1009,10 +1053,10 @@ export default function App() {
               )}
             </section>
 
-            {/* RIGHT — current run status */}
+            {/* RIGHT — ran samples (active run status + this project's runs) */}
             <section className="panel">
               <div className="panel-header">
-                <h2>Current run</h2>
+                <h2>Ran samples</h2>
                 {jobId && <span className="muted" style={{ fontSize: 12 }}>job {jobId.slice(0, 8)}</span>}
               </div>
               {activeRun ? (
@@ -1032,9 +1076,90 @@ export default function App() {
                 </div>
               ) : (
                 <div className="empty-msg">
-                  No active run. Select samples, set the threshold, and Run. Results for any sample are shown below.
+                  No active run. Select samples, set the threshold, and Run. Click any sample below to show its results.
                 </div>
               )}
+
+              {/* Runs in this project — searchable / date-filterable. Click a
+                  sample to drive the Results pane below. */}
+              {activeProject && (() => {
+                const rows = visibleRuns(activeProject);
+                const total = (projectRuns[activeProject] || []).length;
+                const setQuick = (days) => {
+                  const end = new Date();
+                  const start = new Date();
+                  start.setDate(end.getDate() - days);
+                  const iso = (d) => d.toISOString().slice(0, 10);
+                  setRunDateStart(days === 0 ? iso(end) : iso(start));
+                  setRunDateEnd(iso(end));
+                };
+                return (
+                  <div style={{ marginTop: 14 }}>
+                    <div className="panel-header" style={{ marginBottom: 6 }}>
+                      <h3 style={{ margin: 0, fontSize: 13 }}>Runs in {activeProject}</h3>
+                      <span className="muted" style={{ fontSize: 12 }}>
+                        {rows.length === total ? `${total} run${total === 1 ? "" : "s"}` : `${rows.length} of ${total}`}
+                      </span>
+                    </div>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginBottom: 6 }}>
+                      <input
+                        style={{ flex: 1, minWidth: 120, padding: "3px 6px", fontSize: 12, borderRadius: 6 }}
+                        placeholder="Filter samples…"
+                        value={runFilter}
+                        onChange={(e) => setRunFilter(e.target.value)}
+                      />
+                      <button className="ghost" style={{ fontSize: 11 }} onClick={() => loadProjectRuns(activeProject)} title="Refresh">↻</button>
+                    </div>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginBottom: 8, fontSize: 12 }}>
+                      <span className="muted">Run date:</span>
+                      <input type="date" value={runDateStart} onChange={(e) => setRunDateStart(e.target.value)} style={{ fontSize: 12 }} />
+                      <span className="muted">–</span>
+                      <input type="date" value={runDateEnd} onChange={(e) => setRunDateEnd(e.target.value)} style={{ fontSize: 12 }} />
+                      <button className="ghost" style={{ fontSize: 11 }} onClick={() => setQuick(0)}>Today</button>
+                      <button className="ghost" style={{ fontSize: 11 }} onClick={() => setQuick(7)}>Last 7d</button>
+                      <button className="ghost" style={{ fontSize: 11 }} onClick={() => setQuick(30)}>Last 30d</button>
+                      {(runDateStart || runDateEnd) && (
+                        <button className="ghost" style={{ fontSize: 11 }} onClick={() => { setRunDateStart(""); setRunDateEnd(""); }}>Clear dates</button>
+                      )}
+                    </div>
+                    {rows.length === 0 ? (
+                      <div className="empty-msg" style={{ fontSize: 12 }}>
+                        {total === 0 ? "No runs yet in this project." : "No runs match the filter."}
+                      </div>
+                    ) : (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                        {rows.map((r) => {
+                          const isSel = selectedResultKey === sampleKey(activeProject, { sample: r.sample });
+                          return (
+                          <div
+                            key={r.sample}
+                            className="selection-box"
+                            style={{
+                              cursor: "pointer", padding: "6px 8px",
+                              outline: isSel ? "2px solid var(--accent, #4C8C8A)" : "none",
+                            }}
+                            title="Click to show this sample's results below"
+                            onClick={() => showSampleResults(activeProject, { sample: r.sample })}
+                          >
+                            <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                              <span className="sel-name">{r.sample}</span>
+                              <span className={`run-status run-status-${r.status}`} style={{ fontSize: 11 }}>
+                                {r.status === "running" ? "● running" : (r.genotype || "done")}
+                              </span>
+                            </div>
+                            <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
+                              {r.genotype && <>genotype <strong>{r.genotype}</strong> · </>}
+                              {r.segments_matched ? <>{r.segments_matched}/8 seg · </> : null}
+                              {r.mtime ? new Date(r.mtime * 1000).toLocaleString() : ""}
+                            </div>
+                          </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </section>
           </div>
         )}
@@ -1138,6 +1263,34 @@ export default function App() {
                           ))}
                         </tbody>
                       </table>
+                    </div>
+                  )}
+
+                  {/* Complete GenoFLU output — every field GenoFLU emitted for
+                      this sample (the raw results row), so nothing is hidden. */}
+                  {resResult.raw && Object.keys(resResult.raw).length > 0 && (
+                    <div style={{ marginTop: 14 }}>
+                      <h3 style={{ margin: "0 0 6px", fontSize: 13 }}>Complete GenoFLU output</h3>
+                      <div style={{ overflowX: "auto" }}>
+                        <table className="result-table" style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                          <thead>
+                            <tr style={{ textAlign: "left", borderBottom: "2px solid var(--border, #ddd)" }}>
+                              <th style={{ padding: "6px 8px", whiteSpace: "nowrap" }}>Field</th>
+                              <th style={{ padding: "6px 8px" }}>Value</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {Object.entries(resResult.raw).map(([k, v], i) => (
+                              <tr key={i} style={{ borderBottom: "1px solid var(--border, #eee)" }}>
+                                <td style={{ padding: "5px 8px", fontWeight: 600, whiteSpace: "nowrap", verticalAlign: "top" }}>{k}</td>
+                                <td style={{ padding: "5px 8px", wordBreak: "break-word" }}>
+                                  {v === null || v === "" ? "—" : String(v)}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
                   )}
 
