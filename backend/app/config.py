@@ -35,6 +35,7 @@ _GENOFLU_DB_DEFAULT = _GENOFLU_DB_SHARED if Path(_GENOFLU_DB_SHARED).is_dir() el
 DEFAULTS: Dict[str, Any] = {
     "projects_root": str(Path.home() / "projects"),
     "shared_projects_root": _DEFAULT_SHARED_PROJECTS_ROOT,
+    "saved_project_roots": [],
     # Path to a GenoFLU `dependencies/` dir; blank = use the conda package's.
     "genoflu_db": _GENOFLU_DB_DEFAULT,
     # BLAST percent-identity threshold for calling a segment a match. 98.0 is
