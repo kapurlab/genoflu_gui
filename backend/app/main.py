@@ -28,13 +28,13 @@ from typing import Any, Dict, List, Optional
 
 import aiofiles
 from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .config import load_config, save_config
 from .jobs import JobManager
+from .request_safety import install_request_safety
 # NOTE: SRA read download was replaced by FASTA-by-accession/BioSample download
 # (backend/app/sra.py is retained for reference but no longer wired into a route).
 
@@ -65,12 +65,7 @@ _FASTA_EXTS = (".fasta", ".fa", ".fna", ".fas")
 # App & job manager
 # ---------------------------------------------------------------------------
 app = FastAPI(title="GenoFLU GUI")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+install_request_safety(app)
 
 job_manager = JobManager(_JOBS_DIR)
 
