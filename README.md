@@ -60,4 +60,3 @@ Genotyping**:
 
 Edit, then: `frontend/src` → `npm run build`; `backend/app` → new session;
 `bin/` → next run; `ood/**` → re-run `sudo deploy/register_ood_apps.sh`.
-See [`CLAUDE.md`](CLAUDE.md) for the full conventions and constraints.
