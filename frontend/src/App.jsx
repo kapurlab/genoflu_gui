@@ -8,7 +8,10 @@ import { useResults } from "./useResults";
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-const APP_VERSION = "0.1.0";
+// Fallback ONLY: the header shows the backend-reported version (git
+// describe — the same string the Diagnostic Tools Dashboard shows) and
+// uses this constant just until that arrives / on installs without git.
+const APP_VERSION = "0.3.3";
 
 function fileIcon(name) {
   if (name.endsWith(".json")) return "📁";
@@ -76,6 +79,9 @@ export default function App() {
   // GenoFLU run config
   const [pident, setPident] = useState("98");
   const [genofluDb, setGenofluDb] = useState("");
+  // Version of the deployed checkout as reported by the backend (git
+  // describe — the same string the Diagnostic Tools Dashboard shows).
+  const [serverVersion, setServerVersion] = useState("");
 
   const [running, setRunning] = useState(false);
   const [jobId, setJobId] = useState(null);
@@ -107,6 +113,7 @@ export default function App() {
       .then((cfg) => {
         setGenofluDb(cfg.genoflu_db || "");
         if (cfg.pident_threshold != null) setPident(String(cfg.pident_threshold));
+        setServerVersion(cfg.app_version || "");
         setSettingsDraft(cfg);
       })
       .catch(() => {});
@@ -620,7 +627,7 @@ export default function App() {
           <img className="app-logo" src="./genoflu_icon.svg" alt="Influenza genotyping icon" />
           <div>
             <h1>
-              GenoFLU <span className="version-tag">v{APP_VERSION}</span>
+              GenoFLU <span className="version-tag">{serverVersion || `v${APP_VERSION}`}</span>
             </h1>
             <p>Influenza A (H5N1 2.3.4.4b) whole-genome genotyping by per-segment BLAST</p>
           </div>
