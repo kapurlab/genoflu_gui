@@ -3,8 +3,10 @@ import "./App.css";
 import ThemeToggle from "./ThemeToggle";
 import CitationFooter from "./Citations";
 import ResultsPane from "./ResultsPane";
+import { ResizableTable, Grip } from "./ResizableTable";
 import { useResults } from "./useResults";
 import CopyLogButton from "./CopyLogButton";
+import { PaneSplitters } from "./SplitPane";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -650,6 +652,9 @@ export default function App() {
 
   return (
     <div className="app">
+      {/* Draggable dividers for every two-pane row on the page (see
+          SplitPane.jsx). One element, no per-row wiring. */}
+      <PaneSplitters />
       <input
         ref={uploadInputRef}
         type="file"
@@ -1391,15 +1396,15 @@ export default function App() {
                     </div>
                   ) : (
                     <div style={{ overflowX: "auto" }}>
-                      <table className="result-table" style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                      <ResizableTable id="genoflu.segments" className="result-table" style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                         <thead>
                           <tr style={{ textAlign: "left", borderBottom: "2px solid var(--border, #ddd)" }}>
-                            <th style={{ padding: "6px 8px" }}>Segment</th>
-                            <th style={{ padding: "6px 8px" }}>Lineage</th>
-                            <th style={{ padding: "6px 8px", textAlign: "right" }}>% identity</th>
-                            <th style={{ padding: "6px 8px", textAlign: "right" }}>Mismatches</th>
-                            <th style={{ padding: "6px 8px", textAlign: "right" }}>Avg depth</th>
-                            <th style={{ padding: "6px 8px" }}>Top reference</th>
+                            <th style={{ padding: "6px 8px" }}><span className="rt-th-label">Segment</span><Grip label="Segment" /></th>
+                            <th style={{ padding: "6px 8px" }}><span className="rt-th-label">Lineage</span><Grip label="Lineage" /></th>
+                            <th style={{ padding: "6px 8px", textAlign: "right" }}><span className="rt-th-label">% identity</span><Grip label="% identity" /></th>
+                            <th style={{ padding: "6px 8px", textAlign: "right" }}><span className="rt-th-label">Mismatches</span><Grip label="Mismatches" /></th>
+                            <th style={{ padding: "6px 8px", textAlign: "right" }}><span className="rt-th-label">Avg depth</span><Grip label="Avg depth" /></th>
+                            <th style={{ padding: "6px 8px" }}><span className="rt-th-label">Top reference</span><Grip label="Top reference" /></th>
                           </tr>
                         </thead>
                         <tbody>
@@ -1414,7 +1419,7 @@ export default function App() {
                             </tr>
                           ))}
                         </tbody>
-                      </table>
+                      </ResizableTable>
                     </div>
                   )}
 
@@ -1424,11 +1429,11 @@ export default function App() {
                     <div style={{ marginTop: 14 }}>
                       <h3 style={{ margin: "0 0 6px", fontSize: 13 }}>Complete GenoFLU output</h3>
                       <div style={{ overflowX: "auto" }}>
-                        <table className="result-table" style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                        <ResizableTable id="genoflu.raw" className="result-table" style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                           <thead>
                             <tr style={{ textAlign: "left", borderBottom: "2px solid var(--border, #ddd)" }}>
-                              <th style={{ padding: "6px 8px", whiteSpace: "nowrap" }}>Field</th>
-                              <th style={{ padding: "6px 8px" }}>Value</th>
+                              <th style={{ padding: "6px 8px", whiteSpace: "nowrap" }}><span className="rt-th-label">Field</span><Grip label="Field" /></th>
+                              <th style={{ padding: "6px 8px" }}><span className="rt-th-label">Value</span><Grip label="Value" /></th>
                             </tr>
                           </thead>
                           <tbody>
@@ -1441,7 +1446,7 @@ export default function App() {
                               </tr>
                             ))}
                           </tbody>
-                        </table>
+                        </ResizableTable>
                       </div>
                     </div>
                   )}
