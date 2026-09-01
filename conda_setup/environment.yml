@@ -19,7 +19,6 @@ name: genoflu_gui
 channels:
   - conda-forge
   - bioconda
-  - defaults
 
 dependencies:
   # Core Python
